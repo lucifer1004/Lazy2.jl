@@ -5,7 +5,7 @@ using MacroTools
 import Base: replace
 
 export @>, @>>, @as, @switch, @or, @dotimes, @oncethen, @defonce, @with, @errs,
-  @forward, @iter
+       @forward, @iter
 
 """
 A switch statement of sorts:
@@ -36,36 +36,39 @@ expression, if there is one, is used as the default value; if there is
 no default and nothing matches an error will be thrown.
 """
 macro switch(args...)
-  test, exprs = splitswitch(args...)
-  length(exprs) == 0 && return nothing
-  length(exprs) == 1 && return esc(exprs[1])
+    test, exprs = splitswitch(args...)
+    length(exprs) == 0 && return nothing
+    length(exprs) == 1 && return esc(exprs[1])
 
-  test_expr(test, val) =
-    test == :_      ? val :
-    isa(test, Expr) ? :(let _ = $val; $test; end) :
-                      :($test==$val)
+    function test_expr(test, val)
+        test == :_ ? val :
+        isa(test, Expr) ? :(let _ = $val
+              $test
+          end) :
+        :($test == $val)
+    end
 
-  thread(val, yes, no) = :($(test_expr(test, val)) ? $yes : $no)
-  thread(val, yes) = thread(val, yes, :(error($"No match for $test in @switch")))
-  thread(val, yes, rest...) = thread(val, yes, thread(rest...))
+    thread(val, yes, no) = :($(test_expr(test, val)) ? $yes : $no)
+    thread(val, yes) = thread(val, yes, :(error($"No match for $test in @switch")))
+    thread(val, yes, rest...) = thread(val, yes, thread(rest...))
 
-  esc(thread(exprs...))
+    esc(thread(exprs...))
 end
 
 function splitswitch(test, exprs)
-  @assert isexpr(exprs, :block) "@switch requires a begin block"
-  test, rmlines(exprs).args
+    @assert isexpr(exprs, :block) "@switch requires a begin block"
+    test, rmlines(exprs).args
 end
 
 function splitswitch(ex)
-  test = ex.args[1]
-  exprs = c()
-  for ex in ex.args[2:end]
-    isexpr(ex, :->) ?
-      push!(exprs, map(unblock, ex.args)...) :
-      push!(exprs, ex)
-  end
-  test, exprs
+    test = ex.args[1]
+    exprs = c()
+    for ex in ex.args[2:end]
+        isexpr(ex, :->) ?
+        push!(exprs, map(unblock, ex.args)...) :
+        push!(exprs, ex)
+    end
+    test, exprs
 end
 
 """
@@ -85,30 +88,31 @@ preceding a function will be treated as its first argument
 See also [`@>>`](@ref), [`@as`](@ref).
 """
 macro >(exs...)
-  thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : x
+    thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : x
 
-  @static if VERSION < v"0.7"
+    @static if VERSION < v"0.7"
+        function thread(x, ex)
+            isexpr(ex, :call, :macrocall) ?
+            Expr(ex.head, ex.args[1], x, ex.args[2:end]...) :
+            @capture(ex, f_.(xs__)) ? :($f.($x, $(xs...))) :
+            isexpr(ex, :block) ? thread(x, rmlines(ex).args...) :
+            Expr(:call, ex, x)
+        end
 
-    thread(x, ex) =
-    isexpr(ex, :call, :macrocall) ? Expr(ex.head, ex.args[1], x, ex.args[2:end]...) :
-    @capture(ex, f_.(xs__))       ? :($f.($x, $(xs...))) :
-    isexpr(ex, :block)            ? thread(x, rmlines(ex).args...) :
-    Expr(:call, ex, x)
+    else
+        function thread(x, ex)
+            isexpr(ex, :macrocall) ?
+            Expr(ex.head, ex.args[1], ex.args[2], x, ex.args[3:end]...) :
+            isexpr(ex, :call) ? Expr(ex.head, ex.args[1], x, ex.args[2:end]...) :
+            @capture(ex, f_.(xs__)) ? :($f.($x, $(xs...))) :
+            isexpr(ex, :block) ? thread(x, rmlines(ex).args...) :
+            Expr(:call, ex, x)
+        end
+    end
 
-  else
+    thread(x, exs...) = reduce(thread, exs, init = x)
 
-    thread(x, ex) =
-    isexpr(ex, :macrocall)        ? Expr(ex.head, ex.args[1], ex.args[2], x, ex.args[3:end]...) :
-    isexpr(ex, :call,)            ? Expr(ex.head, ex.args[1], x, ex.args[2:end]...) :
-    @capture(ex, f_.(xs__))       ? :($f.($x, $(xs...))) :
-    isexpr(ex, :block)            ? thread(x, rmlines(ex).args...) :
-    Expr(:call, ex, x)
-
-  end
-
-  thread(x, exs...) = reduce(thread, exs, init=x)
-
-  esc(thread(exs...))
+    esc(thread(exs...))
 end
 
 """
@@ -121,18 +125,19 @@ Same as [`@>`](@ref), but threads the last argument.
 See also: [`@>>`](@ref)
 """
 macro >>(exs...)
-  thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : x
+    thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : x
 
-  thread(x, ex) =
-    isexpr(ex, Symbol, :->)       ? Expr(:call, ex, x) :
-    isexpr(ex, :call, :macrocall) ? Expr(ex.head, ex.args..., x) :
-    @capture(ex, f_.(xs__))       ? :($f.($(xs...), $x)) :
-    isexpr(ex, :block)            ? thread(x, rmlines(ex).args...) :
-                                    error("Unsupported expression $ex in @>>")
+    function thread(x, ex)
+        isexpr(ex, Symbol, :->) ? Expr(:call, ex, x) :
+        isexpr(ex, :call, :macrocall) ? Expr(ex.head, ex.args..., x) :
+        @capture(ex, f_.(xs__)) ? :($f.($(xs...), $x)) :
+        isexpr(ex, :block) ? thread(x, rmlines(ex).args...) :
+        error("Unsupported expression $ex in @>>")
+    end
 
-  thread(x, exs...) = reduce(thread, exs; init=x)
+    thread(x, exs...) = reduce(thread, exs; init = x)
 
-  esc(thread(exs...))
+    esc(thread(exs...))
 end
 
 """
@@ -152,38 +157,38 @@ end
 ```
 """
 macro as(as, exs...)
-  thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : x
+    thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : x
 
-  thread(x, ex) =
-    isexpr(ex, Symbol, :->) ? Expr(:call, ex, x) :
-    isexpr(ex, :block)      ? thread(x, rmlines(ex).args...) :
-    :(let $as = $x
-        $ex
-      end)
+    function thread(x, ex)
+        isexpr(ex, Symbol, :->) ? Expr(:call, ex, x) :
+        isexpr(ex, :block) ? thread(x, rmlines(ex).args...) :
+        :(let $as = $x
+              $ex
+          end)
+    end
 
-  thread(x, exs...) = reduce((x, ex) -> thread(x, ex), exs, init=x)
+    thread(x, exs...) = reduce((x, ex) -> thread(x, ex), exs, init = x)
 
-  esc(thread(exs...))
+    esc(thread(exs...))
 end
 
 @static if VERSION < v"0.7"
-  """
-  Same as `@as` but uses `_` as the argmument name.
-  """
-  macro _(args...)
-    :(@as $(esc(:_)) $(map(esc, args)...))
-  end
+    """
+    Same as `@as` but uses `_` as the argmument name.
+    """
+    macro _(args...)
+        :(@as $(esc(:_)) $(map(esc, args)...))
+    end
 end
 
 macro or(exs...)
-  thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : esc(x)
+    thread(x) = isexpr(x, :block) ? thread(rmlines(x).args...) : esc(x)
 
-  thread(x, xs...) =
-    :(let x = $(esc(x))
-        !(x == nothing || x == false) ? x : $(thread(xs...))
-      end)
+    thread(x, xs...) = :(let x = $(esc(x))
+                             !(x == nothing || x == false) ? x : $(thread(xs...))
+                         end)
 
-  thread(exs...)
+    thread(exs...)
 end
 
 """
@@ -192,11 +197,11 @@ end
 Repeat `body` `n` times.
 """
 macro dotimes(n, body)
-  quote
-    for i = 1:$(esc(n))
-      $(esc(body))
+    quote
+        for i in 1:($(esc(n)))
+            $(esc(body))
+        end
     end
-  end
 end
 
 """
@@ -204,11 +209,11 @@ A `do`-`while` loop – executes the `while` loop once regardless of the
 condition, then tests the condition before subsequent iterations.
 """
 macro oncethen(expr::Expr)
-  @assert expr.head == :while
-  esc(quote
-    $(expr.args[2]) # body of loop
-    $expr # loop
-  end)
+    @assert expr.head == :while
+    esc(quote
+            $(expr.args[2]) # body of loop
+            $expr # loop
+        end)
 end
 
 """
@@ -223,10 +228,10 @@ or
     @defonce const pi = 3.14
 """
 macro defonce(def)
-  name = namify(isexpr(def, :struct) ? def.args[2] : def)
-  if !isdefined(__module__, name)
-    return :($(esc(def)))
-  end
+    name = namify(isexpr(def, :struct) ? def.args[2] : def)
+    if !isdefined(__module__, name)
+        return :($(esc(def)))
+    end
 end
 
 """
@@ -236,11 +241,11 @@ End-less `let` block, e.g.
       x+y
 """
 macro with(ex)
-  @capture(ex, ((bindings__,), body_)) || error("Invalid expression @with $ex")
-  ex = :(let $(bindings...)
-           $body
-         end)
-  return esc(ex)
+    @capture(ex, ((bindings__,), body_)) || error("Invalid expression @with $ex")
+    ex = :(let $(bindings...)
+               $body
+           end)
+    return esc(ex)
 end
 
 # Other syntax
@@ -261,15 +266,16 @@ Dict{Any,Any} with 2 entries:
 ```
 """
 macro d(xs...)
-  :(Dict{Any, Any}($(map(esc, xs)...)))
+    :(Dict{Any, Any}($(map(esc, xs)...)))
 end
 
 macro errs(ex)
-  :(try $(esc(ex))
-    catch e
-      showerror(stderr, e, catch_backtrace())
-      println(stderr)
-    end)
+    :(try
+          $(esc(ex))
+      catch e
+          showerror(stderr, e, catch_backtrace())
+          println(stderr)
+      end)
 end
 
 """
@@ -291,38 +297,40 @@ end
 ```
 """
 macro forward(ex, fs)
-  @capture(ex, T_.field_) || error("Syntax: @forward T.x f, g, h")
-  T = esc(T)
-  fs = isexpr(fs, :tuple) ? map(esc, fs.args) : [esc(fs)]
-  :($([:($f(x::$T, args...; kwargs...) = (Base.@_inline_meta; $f(x.$field, args...; kwargs...)))
-       for f in fs]...);
-    nothing)
+    @capture(ex, T_.field_) || error("Syntax: @forward T.x f, g, h")
+    T = esc(T)
+    fs = isexpr(fs, :tuple) ? map(esc, fs.args) : [esc(fs)]
+    :($([:(function $f(x::$T, args...; kwargs...)
+               (Base.@_inline_meta; $f(x.$field, args...; kwargs...))
+           end)
+         for f in fs]...);
+      nothing)
 end
 
 # Forwarding iteration
 
-struct SubIter{I,S}
-  iter::I
-  state::S
+struct SubIter{I, S}
+    iter::I
+    state::S
 end
 
 # Julia#16096
 
 macro iter(ex)
-  @capture(ex, x_::T_ -> it_) || error("Use @iter x::T -> y ...")
-  @capture(it, $x.f_) &&
-    return :(@forward $(esc(T)).$f Base.iterate, Base.iterate)
-  quote
-    @inline function Base.iterate($x::$T)
-      it = $it
-      Lazy.SubIter(it, Base.iterate(it))
-    end
-    @inline function Base.iterate(::$T, sub::Lazy.SubIter)
-      next, state = Base.iterate(sub.iter, sub.state)
-      next == nothing && return nothing
-      next, Lazy.SubIter(sub.iter, state)
-    end
-  end |> esc
+    @capture(ex, x_::T_->it_) || error("Use @iter x::T -> y ...")
+    @capture(it, $x.f_) &&
+        return :(@forward $(esc(T)).$f Base.iterate, Base.iterate)
+    quote
+        @inline function Base.iterate($x::$T)
+            it = $it
+            Lazy2.SubIter(it, Base.iterate(it))
+        end
+        @inline function Base.iterate(::$T, sub::Lazy2.SubIter)
+            next, state = Base.iterate(sub.iter, sub.state)
+            next == nothing && return nothing
+            next, Lazy2.SubIter(sub.iter, state)
+        end
+    end |> esc
 end
 
 # Init macro
@@ -330,24 +338,23 @@ end
 export @init
 
 function initm(ex)
-  quote
-
-    if !isdefined(@__MODULE__, :__inits__)
-      const $(esc(:__inits__)) = Function[]
-    end
-    if !isdefined(@__MODULE__, :__init__)
-      function $(esc(:__init__))()
-        for f in $(esc(:__inits__))
-          f()
+    quote
+        if !isdefined(@__MODULE__, :__inits__)
+            const $(esc(:__inits__)) = Function[]
         end
-      end
-    end
+        if !isdefined(@__MODULE__, :__init__)
+            function $(esc(:__init__))()
+                for f in $(esc(:__inits__))
+                    f()
+                end
+            end
+        end
 
-    push!($(esc(:__inits__)), () -> $(esc(ex)))
-    nothing
-  end
+        push!($(esc(:__inits__)), () -> $(esc(ex)))
+        nothing
+    end
 end
 
 macro init(args...)
-  initm(args...)
+    initm(args...)
 end

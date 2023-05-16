@@ -1,6 +1,6 @@
-The Lazy.jl package is licensed under the MIT Expat License:
+The Lazy2.jl package is licensed under the MIT Expat License:
 
-> Copyright (c) 2013: Mike Innes, Julia Computing & contributors.
+> Copyright (c) 2013: Gabriel Wu, Mike Innes, Julia Computing & contributors.
 >
 > Permission is hereby granted, free of charge, to any person obtaining
 > a copy of this software and associated documentation files (the

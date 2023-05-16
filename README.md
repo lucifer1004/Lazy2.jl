@@ -1,17 +1,15 @@
-# Lazy.jl
-
-[![Gitter chat](https://badges.gitter.im/one-more-minute/Lazy.jl.png)](https://gitter.im/one-more-minute/Lazy.jl)
+# Lazy2.jl
 
 ```julia
-Pkg.add("Lazy")
+Pkg.add("Lazy2")
 ```
 
-Lazy.jl provides Julia with the cornerstones of functional programming - lazily-evaluated lists and a large library of functions for working with them. It's also a repository for some neat macros, which might be useful to you even if you don't want lazy lists (see below).
+Lazy2.jl provides Julia with the cornerstones of functional programming - lazily-evaluated lists and a large library of functions for working with them. It's also a repository for some neat macros, which might be useful to you even if you don't want lazy lists (see below).
 
 Firstly, the canonical examples, in Julia:
 
 ```julia
-using Lazy
+using Lazy2
 
 # Note : prepends. Don't forget the semicolon!
 #   -- When running interactively, the semi-colon prevents the environment 
@@ -32,13 +30,13 @@ isprime(n) =
   end
 
 # the prime numbers defined in terms of isprime:
-primes = filter(isprime, Lazy.range(2));
+primes = filter(isprime, Lazy2.range(2));
 
 take(20, primes)
 #> (2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71)
 ```
 
-If you've done any functional programming, you already know how to use Lazy.jl; just head down to the reference below to see what functions are available.
+If you've done any functional programming, you already know how to use Lazy2.jl; just head down to the reference below to see what functions are available.
 
 ### Intro to Laziness
 
@@ -46,7 +44,7 @@ For the unfamiliar, laziness just means that the elements of the list aren't act
 
 ```julia
 # Even square numbers:
-> esquares = @>> Lazy.range() map(x->x^2) filter(iseven);
+> esquares = @>> Lazy2.range() map(x->x^2) filter(iseven);
 # first 5
 > take(5, esquares)
 List:
@@ -67,7 +65,7 @@ But lazy lists aren't just for mathematical tricks; you can use them very practi
 @>> "file.txt" lineseq foreach(println) # Will work no matter many lines file.txt has
 ```
 
-The other thing that separates lists from arrays is the huge amount of functionality that comes with most functional programming libraries, including Lazy.jl - if you know your way around them, most data manipulation becomes a simple case of chaining a few functions together. Even if you do ultimately need arrays for speed, you could do worse than to prototype with lists.
+The other thing that separates lists from arrays is the huge amount of functionality that comes with most functional programming libraries, including Lazy2.jl - if you know your way around them, most data manipulation becomes a simple case of chaining a few functions together. Even if you do ultimately need arrays for speed, you could do worse than to prototype with lists.
 
 ### Macros
 

@@ -1,4 +1,4 @@
-module Lazy
+module Lazy2
 
 ############
 # Utilities
@@ -13,11 +13,11 @@ export @listable
 import Base: *, ==, +, -
 
 macro listable(f)
-  if typeof(f) == Expr && f.head == :tuple
-    return Expr(:block, [:(@listable $f) for f in f.args]...)
-  end
-  f = esc(f)
-  :($f(l1::List, ls::List...) = map($f, l1, ls...))
+    if typeof(f) == Expr && f.head == :tuple
+        return Expr(:block, [:(@listable $f) for f in f.args]...)
+    end
+    f = esc(f)
+    :($f(l1::List, ls::List...) = map($f, l1, ls...))
 end
 
 ########
@@ -34,16 +34,16 @@ mutable struct EmptyList <: List
 end
 
 mutable struct LinkedList <: List
-  head
-  tail::List
+    head::Any
+    tail::List
 end
 
 mutable struct LazyList <: List
-  list::List
-  realised::Bool
-  f::Function
+    list::List
+    realised::Bool
+    f::Function
 
-  LazyList(f) = new(EmptyList(), false, f)
+    LazyList(f) = new(EmptyList(), false, f)
 end
 
 # Empty List
@@ -57,8 +57,8 @@ isempty(::EmptyList) = true
 prepend(x, l::List) = LinkedList(x, l)
 (::Colon)(x, xs::List) = prepend(x, xs)
 (::Colon)(x::List, xs::List) = prepend(x, xs) # special case: prepend list
-(::Colon)(x::T, y, xs::T) where T<:List = prepend(x, prepend(y, xs))
-(::Colon)(x, y, xs::List) = x:prepend(y,xs)
+(::Colon)(x::T, y, xs::T) where {T <: List} = prepend(x, prepend(y, xs))
+(::Colon)(x, y, xs::List) = x:prepend(y, xs)
 
 list() = EmptyList()
 list(x, xs...) = x:list(xs...)
@@ -71,27 +71,27 @@ isempty(::LinkedList) = false
 # Lazy Lists
 
 function realise!(xs::LazyList)
-  xs.realised && return xs.list
-  xs.realised = true
-  xs.list = xs.f()
-  return xs.list
+    xs.realised && return xs.list
+    xs.realised = true
+    xs.list = xs.f()
+    return xs.list
 end
 
 function realise(xs::LazyList)
-  realise!(xs)
-  # Unroll in a loop to avoid overflow
-  while isa(xs.list, LazyList)
-    xs.list = realise!(xs.list)
-  end
-  return xs.list
+    realise!(xs)
+    # Unroll in a loop to avoid overflow
+    while isa(xs.list, LazyList)
+        xs.list = realise!(xs.list)
+    end
+    return xs.list
 end
 
 macro lazy(code)
-  :(LazyList(() -> seq($(esc(code)))))
+    :(LazyList(() -> seq($(esc(code)))))
 end
 
 for f in [:first :isempty]
-  @eval $f(l::LazyList) = $f(realise(l))
+    @eval $f(l::LazyList) = $f(realise(l))
 end
 
 tail(l::LazyList) = @lazy tail(realise(l))
@@ -122,31 +122,31 @@ foreach(f, ls::List...) = map(f, ls...) |> dorun
 
 import Base: getindex, setindex!
 
-getindex(l::List, i::Int) = i <= 1 ? first(l) : tail(l)[i-1]
+getindex(l::List, i::Int) = i <= 1 ? first(l) : tail(l)[i - 1]
 getindex(l::List, r::UnitRange) = take(length(r), drop(r.start - 1, l))
 
-setindex!(xs::LinkedList, v, i::Integer) = i <= 1 ? xs.first = v : (tail(xs)[i-1] = v)
-setindex!(xs::LazyList, v, i::Integer) = i <= 1 ? realise(xs)[1] = v : (tail(xs)[i-1] = v)
+setindex!(xs::LinkedList, v, i::Integer) = i <= 1 ? xs.first = v : (tail(xs)[i - 1] = v)
+setindex!(xs::LazyList, v, i::Integer) = i <= 1 ? realise(xs)[1] = v : (tail(xs)[i - 1] = v)
 
 # Iteration over a list holds on to the head
-function Base.iterate(L::List, xs::List=L)
-  isempty(xs) && return nothing
-  first(xs), tail(xs)
+function Base.iterate(L::List, xs::List = L)
+    isempty(xs) && return nothing
+    first(xs), tail(xs)
 end
 
 ###########
 # Printing
 ###########
 function Base.show(io::IO, xs::List)
-  print(io, "List: (")
-  for (i, x) in enumerate(interpose(xs, " "))
-    print(io, x)
-    if i > 21
-      print(io, "…")
-      break
+    print(io, "List: (")
+    for (i, x) in enumerate(interpose(xs, " "))
+        print(io, x)
+        if i > 21
+            print(io, "…")
+            break
+        end
     end
-  end
-  print(io, ")")
+    print(io, ")")
 end
 
 # Some example lists
@@ -155,12 +155,12 @@ end
 
 const fibs = @lazy 0:big(1):(fibs + tail(fibs))
 
-isprime(n) =
-  @>> primes begin
-    takewhile(x -> x<=sqrt(n))
+isprime(n) = @>> primes begin
+    takewhile(x -> x <= sqrt(n))
     map(x -> n % x == 0)
-    any; !
-  end
+    any
+    !
+end
 
 const primes = filter(isprime, range(2))
 

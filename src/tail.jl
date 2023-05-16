@@ -3,24 +3,25 @@ using MacroTools
 # Tail call operations
 
 function lastcalls(f, ex)
-  isexpr(ex, :block) && return :(begin $(lastcalls(f, ex.args)...) end)
-  @match ex begin
-    let __ end     => :(let $(lastcalls(f, ex.args)...) end)
-    (c_ ? y_ : n_) => :($c ? $(lastcalls(f, y)) : $(lastcalls(f, n)))
-    (a_ && b_)     => :($a && $(lastcalls(f, b)))
-    (a_ || b_)     => :($a || $(lastcalls(f, b)))
-    _              => f(ex)
-  end
+    isexpr(ex, :block) && return :(begin $(lastcalls(f, ex.args)...) end)
+    @match ex begin
+        let __
+        end => :(let $(lastcalls(f, ex.args)...)
+                 end)
+        (c_ ? y_ : n_) => :($c ? $(lastcalls(f, y)) : $(lastcalls(f, n)))
+        (a_ && b_) => :($a && $(lastcalls(f, b)))
+        (a_ || b_) => :($a || $(lastcalls(f, b)))
+        _ => f(ex)
+    end
 end
 
-lastcalls(f, ex::Array) =
-  isempty(ex) ? ex :
-    [ex[1:end-1]..., lastcalls(f, ex[end])]
+lastcalls(f, ex::Array) = isempty(ex) ? ex :
+                          [ex[1:(end - 1)]..., lastcalls(f, ex[end])]
 
 function retcalls(f, ex)
-  MacroTools.postwalk(ex) do ex
-    @capture(ex, return x_) ? :(return $(lastcalls(f, x))) : ex
-  end
+    MacroTools.postwalk(ex) do ex
+        @capture(ex, return x_) ? :(return $(lastcalls(f, x))) : ex
+    end
 end
 
 tailcalls(f, ex) = @>> ex lastcalls(f) retcalls(f)
@@ -32,11 +33,11 @@ export @rec, @bounce
 "Generate an expression like `(a, b) = (c, d)`."
 tupleassign(xs, ys) = Expr(:(=), Expr(:tuple, xs...), Expr(:tuple, ys...))
 
-tco(ex, f, dummy, start) =
-  @capture(ex, $f(args__)) ?
+function tco(ex, f, dummy, start)
+    @capture(ex, $f(args__)) ?
     :($(tupleassign(dummy, args)); @goto $start) :
     ex
-
+end
 
 """
 Enables efficient recursive functions, e.g.
@@ -58,22 +59,22 @@ Caveats:
 Use the more flexible, but slower, [`@bounce`](@ref) to avoid these issues.
 """
 macro rec(def)
-  def = shortdef(macroexpand(@__MODULE__, def))
-  @capture(def, f_(args__) = body_) || error("@rec: $def is not a function definition.")
-  f = namify(f)
-  dummy = @>> args map(namify) map(string) map(gensym)
+    def = shortdef(macroexpand(@__MODULE__, def))
+    @capture(def, f_(args__)=body_) || error("@rec: $def is not a function definition.")
+    f = namify(f)
+    dummy = @>> args map(namify) map(string) map(gensym)
 
-  # Set up of variables
-  @gensym start
-  body = quote
-           $(tupleassign(dummy, args))
-           @label $start
-           $(tupleassign(args, dummy))
-           $body
-         end
+    # Set up of variables
+    @gensym start
+    body = quote
+        $(tupleassign(dummy, args))
+        @label $start
+        $(tupleassign(args, dummy))
+        $body
+    end
 
-  def.args[2] = tailcalls(ex -> tco(ex, f, dummy, start), body)
-  return esc(def)
+    def.args[2] = tailcalls(ex -> tco(ex, f, dummy, start), body)
+    return esc(def)
 end
 
 # Trampolining
@@ -81,27 +82,27 @@ end
 trampname(f) = Symbol(string("#__", f, "_tramp__"))
 
 mutable struct Bounce
-  f::Function
+    f::Function
 end
 
 function trampoline(f, args...)
-  val = f(args...)
-  while isa(val, Bounce)
-    val = val.f()
-  end
-  return val
+    val = f(args...)
+    while isa(val, Bounce)
+        val = val.f()
+    end
+    return val
 end
 
 function bounce(ex)
-  @capture(ex, f_(args__)) || return ex
-  f_tramp = trampname(f)
-  :(Lazy.Bounce(() -> $f_tramp($(args...))))
+    @capture(ex, f_(args__)) || return ex
+    f_tramp = trampname(f)
+    :(Lazy2.Bounce(() -> $f_tramp($(args...))))
 end
 
 function trampdef(f)
-  f_tramp = trampname(f)
-  @isdefined(f_tramp) && return
-  :($f_tramp(args...) = $f(args...))
+    f_tramp = trampname(f)
+    @isdefined(f_tramp) && return
+    :($f_tramp(args...) = $f(args...))
 end
 
 """
@@ -116,21 +117,21 @@ Tail recursion that doesn't blow the stack.
 For simple cases you probably want the much faster [`@rec`](@ref).
 """
 macro bounce(def)
-  def = macroexpand(@__MODULE__, def)
-  @assert isdef(def)
-  @assert isexpr(def.args[1].args[1], Symbol) # TODO: handle f{T}() = ...
-  f = namify(def)
-  f_tramp = trampname(f)
-  args = def.args[1].args[2:end]
-  def.args[1].args[1] = f_tramp
+    def = macroexpand(@__MODULE__, def)
+    @assert isdef(def)
+    @assert isexpr(def.args[1].args[1], Symbol) # TODO: handle f{T}() = ...
+    f = namify(def)
+    f_tramp = trampname(f)
+    args = def.args[1].args[2:end]
+    def.args[1].args[1] = f_tramp
 
-  calls = Symbol[]
-  def.args[2] = tailcalls(ex -> (isexpr(ex, :call) && push!(calls, ex.args[1]);
-                                 bounce(ex)),
-                          def.args[2])
-  quote
-    $([trampdef(call) for call in calls]...)
-    $def
-    $f($(args...)) = Lazy.trampoline($f_tramp, $(args...))
-  end |> esc
+    calls = Symbol[]
+    def.args[2] = tailcalls(ex -> (isexpr(ex, :call) && push!(calls, ex.args[1]);
+                                   bounce(ex)),
+                            def.args[2])
+    quote
+        $([trampdef(call) for call in calls]...)
+        $def
+        $f($(args...)) = Lazy2.trampoline($f_tramp, $(args...))
+    end |> esc
 end
